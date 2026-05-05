@@ -14,12 +14,14 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	_ "github.com/lib/pq"
 
 	"github.com/openkcm/krypton/internal/config"
 	"github.com/openkcm/krypton/internal/spec"
+	"github.com/openkcm/krypton/pkg/api/v1/proto"
 	"github.com/openkcm/krypton/pkg/api/v1/proto/agents"
 	"github.com/openkcm/krypton/pkg/store"
 )
@@ -57,12 +59,12 @@ func setupPostgres() (func(), error) {
 	return cleanUp, err
 }
 
-func setupServerAndClient(t *testing.T, store store.Agent, cfg config.RootConfig) agents.AgentServiceClient {
+func setupServerAndClient(t *testing.T, store store.Agent, cfg config.RootConfig) agents.ServiceClient {
 	t.Helper()
 
 	srv := grpc.NewServer()
 	agentSvc := agents.NewAgentService(store, cfg)
-	agents.RegisterAgentServiceServer(srv, agentSvc)
+	agents.RegisterServiceServer(srv, agentSvc)
 
 	const bufSize = 1024 * 1024
 	lis := bufconn.Listen(bufSize)
@@ -91,7 +93,7 @@ func setupServerAndClient(t *testing.T, store store.Agent, cfg config.RootConfig
 		conn.Close()
 	})
 
-	client := agents.NewAgentServiceClient(conn)
+	client := agents.NewServiceClient(conn)
 	return client
 }
 
@@ -182,4 +184,16 @@ func validRootConfig(agentName string) config.RootConfig {
 		Topology:  topology,
 	}
 	return rootConfig
+}
+
+func assertErrorDetails(t *testing.T, expCode proto.Code, actErr error) {
+	t.Helper()
+
+	st := status.Convert(actErr)
+	dts := st.Details()
+	require.Len(t, dts, 1, "expected 1 error detail")
+
+	dt, ok := dts[0].(*proto.ErrorDetails)
+	require.True(t, ok, "expected error details of type proto.ErrorDetails")
+	assert.Equal(t, expCode, dt.GetCode())
 }
